@@ -1,0 +1,212 @@
+%% CSE422 Lab Report -- IEEE journal format (IEEEtran.cls)
+%% Matches the structure of the course-preferred Overleaf template:
+%% "LabReport_IEEE Journal Paper Template" (based on bare_jrnl.tex / IEEEtran.cls)
+%% TODO before submitting: replace the author block below with your real names/IDs.
+
+\documentclass[journal]{IEEEtran}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage[T1]{fontenc}
+
+\begin{document}
+
+\title{Predicting Diabetes from Routine Health Metrics: \\ A Comparative Machine Learning Study}
+
+\author{Group~07 \\
+\textit{Department of Computer Science and Engineering} \\
+\textit{Course: CSE422 --- Artificial Intelligence} \\
+Tahamidul Alam Chowdhury (ID: 22299066), Mehedi Zaman Sami (ID: 22299481)
+\thanks{Manuscript prepared for the CSE422 Artificial Intelligence Lab Project.}}
+
+\markboth{CSE422 Artificial Intelligence Lab Report, Group 07}%
+{Group 07: Predicting Diabetes from Routine Health Metrics}
+
+\maketitle
+
+\begin{abstract}
+Early, low-cost screening for diabetes is valuable because comprehensive diagnostic testing is not always accessible, while routine physiological measurements are inexpensive and widely collected. This report investigates whether such routine measurements -- age, body mass index (BMI), temperature, heart rate, blood pressure, cholesterol, gender, blood type, and smoking status -- can predict diabetes status, using a dataset of 200{,}000 individuals. Following exploratory data analysis and pre-processing (missing-value imputation, redundant-feature removal, categorical encoding, and feature scaling), five supervised classifiers -- Logistic Regression, Gaussian Naive Bayes, a Decision Tree, K-Nearest Neighbors (KNN), and a Neural Network (Multi-Layer Perceptron) -- were trained and evaluated using accuracy, precision, recall, F1-score, and area under the ROC curve (AUC). K-Means clustering was additionally applied without access to the diabetes labels. Exploratory analysis found negligible correlation ($|r| < 0.007$) between every numeric feature and the diabetes label across Pearson, Spearman, and Kendall methods. Consistent with this, all five classifiers performed close to a majority-class baseline (AUC 0.50--0.66), and K-Means clusters showed no meaningful correspondence with true diabetes status (Adjusted Rand Index $\approx 0$). KNN achieved the highest AUC (0.656), but this is attributed to sensitivity to local sampling noise rather than genuine signal. These results indicate that, in this dataset, general vital-sign measurements alone carry little predictive information about diabetes status.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Diabetes prediction, machine learning, exploratory data analysis, classification, K-means clustering, neural networks.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Diabetes is one of the most common chronic conditions worldwide, and a large share of cases go undiagnosed because comprehensive diagnostic testing (fasting glucose, HbA1c) is not always accessible or affordable. Routine measurements -- age, body mass index (BMI), blood pressure, heart rate, cholesterol, body temperature, and smoking status -- are far cheaper and are already collected during most general check-ups. If these routine measurements carry meaningful signal about diabetes risk, they could support low-cost, early screening in settings where full diagnostic testing is impractical.
+
+The aim of this project is to use a health-metrics dataset to build and compare several machine learning models -- a Neural Network together with several classical classifiers -- that predict whether an individual has diabetes from routine metrics. The labels are then set aside entirely and K-Means clustering is applied, to test whether the data separates into groups that correspond to diabetic and non-diabetic status without supervision.
+
+The target feature is \textit{Diabetes}, which takes the discrete values \textit{Yes} and \textit{No}, making this a binary classification problem. The remainder of this report is organized as follows. Section II describes the dataset. Section III presents the exploratory data analysis. Section IV details pre-processing. Section V describes model training. Section VI reports evaluation results, and Section VII concludes with a discussion of probable causes behind the results and recommendations for future work.
+
+\section{Dataset Description}
+The dataset (\texttt{7.csv}) contains 200{,}000 rows and 13 columns: 12 predictor features and one target variable, \textit{Diabetes}. Table~\ref{tab:features} summarizes the columns. Eight columns are numeric (\textit{Student ID}, \textit{Age}, \textit{Height}, \textit{Weight}, \textit{BMI}, \textit{Temperature}, \textit{Heart Rate}, \textit{Blood Pressure}, \textit{Cholesterol} -- nine including the identifier) and four are categorical (\textit{Gender}, \textit{Blood Type}, \textit{Diabetes}, \textit{Smoking}).
+
+\begin{table}[!ht]
+\centering
+\caption{Dataset Features}
+\label{tab:features}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Column} & \textbf{Description} \\
+\midrule
+Student ID & Row identifier (not a health measurement) \\
+Age & Age in years \\
+Gender & Male / Female \\
+Height & Height (cm) \\
+Weight & Weight (kg) \\
+Blood Type & A / B / AB / O \\
+BMI & Body Mass Index \\
+Temperature & Body temperature ($^{\circ}$F) \\
+Heart Rate & Resting heart rate (bpm) \\
+Blood Pressure & Systolic blood pressure \\
+Cholesterol & Cholesterol level \\
+Diabetes & \textbf{Target}: Yes / No \\
+Smoking & Yes / No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Exploratory Data Analysis}
+
+\subsection{Missing Values and Duplicates}
+Every column contains missing values at a rate of approximately 10\%, missing independently across columns; as a result 74.6\% of raw rows contain at least one missing value. The raw dataset also contains 7{,}644 exact duplicate rows.
+
+\subsection{Distribution and Skewness}
+Age, Height, Weight, Heart Rate, Blood Pressure, and Cholesterol are approximately uniformly distributed over their respective ranges, while Temperature is approximately normally distributed. Skewness for all numeric features falls within $\pm 0.5$ (fairly symmetric), with BMI showing the largest skew at 0.44, consistent with its distribution as a ratio of two variables. An outlier check using the $1.5\times$IQR rule found negligible outliers for most features (0\%), with minor exceptions in Temperature (0.72\%) and BMI (0.10\%).
+
+\subsection{Correlation Analysis}
+Fig.~\ref{fig:heatmap} shows the correlation matrix of numeric features. The only substantial relationship is between BMI and its constituent measurements: $|r|=0.822$ with Weight and $|r|=0.551$ with Height, consistent with the definition $\text{BMI} = \text{weight(kg)} / \text{height(m)}^2$. All other pairwise correlations among numeric features are below 0.01 in magnitude.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\columnwidth]{figs/corr_heatmap.png}
+\caption{Correlation heatmap of numeric features. BMI is strongly related to Height and Weight by construction; all other pairs are effectively uncorrelated.}
+\label{fig:heatmap}
+\end{figure}
+
+Critically, correlating each numeric feature against the target (Pearson, Spearman, and Kendall methods) yields a maximum $|r|$ of only 0.0067 across every feature and every method -- an order of magnitude below what is typically considered even a weak relationship. Group-wise diabetes rates confirm this: the diabetes rate is approximately 10\% regardless of smoking status, gender, or blood type.
+
+\subsection{Class Imbalance}
+As shown in Fig.~\ref{fig:imbalance}, the target is imbalanced: 89.99\% of labelled rows are \textit{No} and 10.01\% are \textit{Yes}. This has two consequences addressed later in this report: raw accuracy is a misleading metric (a model that always predicts \textit{No} already scores $\approx$90\% accuracy), and class weighting is applied during model training where supported.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.8\columnwidth]{figs/imbalance.png}
+\caption{Class balance of the target variable, Diabetes.}
+\label{fig:imbalance}
+\end{figure}
+
+\section{Data Pre-processing}
+Pre-processing was applied in the following order.
+
+\textbf{Missing target values.} Rows with a missing \textit{Diabetes} label (20{,}000 rows) were dropped, since no ground truth is available to train or evaluate against for these rows.
+
+\textbf{Duplicates.} 7{,}549 exact duplicate rows (among the remaining 180{,}000) were removed, leaving 172{,}451 rows.
+
+\textbf{Feature selection.} \textit{Student ID} was dropped: it has only 96{,}424 unique values across 172{,}451 rows and therefore does not even uniquely identify rows, let alone measure health. \textit{Height} and \textit{Weight} were dropped in favor of \textit{BMI}, which is derived directly from them (Section III-C); retaining all three would provide the same information redundantly.
+
+\textbf{Train/test split.} The data was split 80/20 into training and test sets, stratified on \textit{Diabetes} to preserve the $\approx$90/10 class ratio in both sets (137{,}960 training rows, 34{,}491 test rows). All subsequent steps were fit on the training set only and applied to the test set, to avoid data leakage.
+
+\textbf{Imputation.} Remaining missing values were imputed using the median (numeric features) or the most frequent value (categorical features), fit on the training set.
+
+\textbf{Encoding.} \textit{Gender} and \textit{Smoking} were mapped to binary 0/1 values. \textit{Blood Type} (four unordered categories) was one-hot encoded to avoid implying a false ordinal relationship. The target was mapped to 0/1.
+
+\textbf{Scaling.} The six continuous numeric features were standardized (zero mean, unit variance) using training-set statistics, since distance- and gradient-based models (KNN, Logistic Regression, the Neural Network) are sensitive to feature scale.
+
+\section{Model Training}
+Five supervised classifiers were trained: Logistic Regression, Gaussian Naive Bayes, a Decision Tree (max depth 8), K-Nearest Neighbors ($k=15$, distance-weighted), and a Neural Network (Multi-Layer Perceptron, two hidden layers of 64 and 32 units, early stopping). A majority-class \textit{Baseline} classifier was included for reference. \texttt{class\_weight=`balanced'} was applied for Logistic Regression and the Decision Tree to counter the class imbalance identified in Section III-D; Gaussian Naive Bayes and the Neural Network do not support this option in the implementation used.
+
+\subsection{K-Means Clustering}
+Separately, K-Means was applied to the full (train + test) scaled feature matrix, without access to the \textit{Diabetes} labels. The elbow method (Fig.~\ref{fig:elbow}) shows inertia decreasing smoothly with $k$ rather than bending sharply at any one point, suggesting the data lacks strongly separated natural clusters. $k=2$ was nonetheless selected to allow direct comparison with the two \textit{Diabetes} classes.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\columnwidth]{figs/elbow.png}
+\caption{Elbow method for K-Means. The absence of a sharp elbow suggests weak natural cluster structure.}
+\label{fig:elbow}
+\end{figure}
+
+\section{Model Evaluation}
+
+\subsection{Supervised Classifiers}
+Table~\ref{tab:results} reports accuracy, precision, recall, F1-score, and AUC for all six models on the held-out test set, sorted by AUC. Fig.~\ref{fig:roc} shows the corresponding ROC curves.
+
+\begin{table*}[!ht]
+\centering
+\caption{Model Comparison on the Test Set (sorted by AUC)}
+\label{tab:results}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Model} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1 Score} & \textbf{AUC} \\
+\midrule
+K-Nearest Neighbors        & 0.9115 & 0.9880 & 0.1189 & 0.2122 & \textbf{0.6555} \\
+Decision Tree               & 0.5337 & 0.1049 & 0.4851 & 0.1726 & 0.5215 \\
+Gaussian Naive Bayes        & 0.8998 & 0.0000 & 0.0000 & 0.0000 & 0.5078 \\
+Logistic Regression         & 0.5042 & 0.1015 & 0.5025 & 0.1689 & 0.5072 \\
+Neural Network (MLP)        & 0.8998 & 0.0000 & 0.0000 & 0.0000 & 0.5050 \\
+Baseline (majority class)   & 0.8998 & 0.0000 & 0.0000 & 0.0000 & 0.5000 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{figure*}[!ht]
+\centering
+\includegraphics[width=0.6\textwidth]{figs/roc_curves.png}
+\caption{ROC curves for all supervised models. All curves lie close to the diagonal (AUC = 0.5, random guessing), with K-Nearest Neighbors showing the largest, though still modest, deviation.}
+\label{fig:roc}
+\end{figure*}
+
+Gaussian Naive Bayes and the Neural Network -- the two models without class-weight correction -- collapsed to predicting the majority class for every test instance, matching the Baseline exactly on accuracy and AUC. Logistic Regression and the Decision Tree, both class-weighted, achieved higher recall ($\approx$0.49--0.50) at a heavy cost to precision and overall accuracy ($\approx$0.50--0.53), the expected trade-off from balancing an imbalanced problem with no strong underlying signal. K-Nearest Neighbors achieved the highest AUC (0.6555) and, notably, the highest precision (0.988) among models that made any positive predictions at all, though its recall remained low (0.119).
+
+\subsection{Cross-Validation}
+All results above come from a single 80/20 train/test split, which can occasionally give an optimistic or pessimistic read of a model's true performance. Following the K-Fold Cross-Validation method, each model was re-evaluated using 5-fold \emph{Stratified} K-Fold cross-validation (stratified to preserve the $\approx$90/10 class ratio in every fold, consistent with Section IV's stratified split), with a freshly-initialized copy of each model trained and scored on each fold.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\columnwidth]{figs/cv_plot.png}
+\caption{AUC per model across 5 stratified cross-validation folds. K-Nearest Neighbors remains consistently separated from the other models across every fold.}
+\label{fig:cv}
+\end{figure}
+
+Table~\ref{tab:cv} reports the mean and standard deviation of AUC across folds, alongside the original single-split AUC for comparison. The cross-validated means agree closely with the single-split results (differences of 0.005 or less in every case), and the standard deviation across folds is small (0.0036--0.0053) for every model. This confirms the single-split result was not a lucky or unlucky artifact of one particular split: K-Nearest Neighbors consistently outperforms the other models across every fold (Fig.~\ref{fig:cv}), while every other model remains close to the 0.5 baseline throughout.
+
+\begin{table}[!ht]
+\centering
+\caption{5-Fold Cross-Validation Results (sorted by CV Mean AUC)}
+\label{tab:cv}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model} & \textbf{CV Mean AUC} & \textbf{CV Std AUC} & \textbf{Single-Split AUC} \\
+\midrule
+K-Nearest Neighbors        & \textbf{0.6504} & 0.0043 & 0.6555 \\
+Decision Tree               & 0.5204 & 0.0036 & 0.5215 \\
+Neural Network (MLP)        & 0.5039 & 0.0053 & 0.5050 \\
+Logistic Regression         & 0.5025 & 0.0051 & 0.5072 \\
+Gaussian Naive Bayes        & 0.5019 & 0.0045 & 0.5078 \\
+Baseline (majority class)   & 0.5000 & 0.0000 & 0.5000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{K-Means vs. True Labels}
+K-Means partitioned the data into clusters of 89{,}573 and 82{,}878 points. Comparing these clusters against the true \textit{Diabetes} labels gives an Adjusted Rand Index of $-0.00012$ and a Normalized Mutual Information of $0.00001$ -- both indistinguishable from zero, indicating no meaningful correspondence between the discovered clusters and diabetes status. The silhouette score (0.096, computed on a 10{,}000-row sample) further indicates the two clusters are not well separated to begin with.
+
+\section{Conclusion}
+
+\subsection{Best Model}
+By raw accuracy, several models appear strong ($\approx$90\%), but this only reflects matching the 90\% majority class rather than any ability to detect diabetic cases. Ranked by AUC -- the metric least distorted by class imbalance -- K-Nearest Neighbors is the top-performing model (Table~\ref{tab:results}), though its AUC of 0.656 indicates only modest discriminative ability, and, as discussed below, likely overstates the model's real-world reliability.
+
+\subsection{Probable Reasons Behind These Results}
+Five independent pieces of evidence in this study converge on the same explanation. First, the correlation analysis (Section III-C) found no numeric feature with more than $|r|=0.0067$ correlation with the target, across three different correlation methods. Second, group-wise diabetes rates are statistically indistinguishable across smoking status, gender, and blood type. Third, K-Means, operating with no label information whatsoever, discovered clusters with no relationship to diabetes status (ARI $\approx 0$). Fourth, 5-fold cross-validation (Section VI-B) confirms every model's performance is stable across different subsets of the data (standard deviation under 0.006 in every case), ruling out the possibility that these are lucky or unlucky single-split results. Fifth, the one classifier with a visibly elevated AUC (KNN) is also the most locally flexible model in the comparison, which makes it prone to fitting incidental noise in dense regions of the training data -- a pattern not corroborated by any single feature showing real signal in the EDA, though its consistency across cross-validation folds suggests this is a reproducible property of the dataset rather than a one-off artifact. Taken together, these results indicate that the pre-processing, training, and evaluation pipeline are functioning correctly, but the available features in this dataset carry little intrinsic information about diabetes status. Real-world diabetes risk depends heavily on factors not captured here, most notably blood glucose or HbA1c levels and family history, so a model built only from general vital signs has a low ceiling on achievable performance regardless of the algorithm used.
+
+\subsection{Recommendations}
+Future work could: (i) incorporate more directly relevant clinical features, particularly fasting glucose or HbA1c; (ii) collect a larger number of positive (diabetic) cases, since only 10\% of the current sample is positive; (iii) apply resampling techniques such as SMOTE in addition to class weighting; and (iv) avoid selecting a "best" model from a single metric in isolation, cross-checking any leaderboard result against exploratory findings, as done in this report.
+
+\begin{thebibliography}{1}
+\bibitem{scikit-learn} F. Pedregosa \emph{et al.}, ``Scikit-learn: Machine Learning in Python,'' \emph{Journal of Machine Learning Research}, vol. 12, pp. 2825--2830, 2011.
+\bibitem{pandas} W. McKinney, ``Data Structures for Statistical Computing in Python,'' in \emph{Proc. 9th Python in Science Conf.}, 2010, pp. 56--61.
+\end{thebibliography}
+
+\end{document}
